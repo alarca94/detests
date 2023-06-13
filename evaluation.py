@@ -2,7 +2,8 @@ import os
 import pandas as pd
 import numpy as np
 
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score
+from utils import read_results
 
 
 class Evaluator:
@@ -87,31 +88,22 @@ class Evaluator:
         icm = self.alpha1 * ic_y + self.alpha2 * ic_y_pred - self.beta * ic_y_union_y_pred
         return icm.mean()
 
-    def read_results(self, task_number, filename):
-        if task_number == 1:
-            columns = ['sentence_id', 'stereotype']
-        elif task_number == 2:
-            columns = ['sentence_id', 'stereotype', 'xenophobia', 'suffering', 'economic', 'migration',
-                       'culture', 'benefits', 'health', 'security', 'dehumanisation', 'others']
-        else:
-            raise ValueError('Task number must be either 1 or 2')
-
-        results = pd.read_csv(os.path.join(self.results_path, filename))
-        results['sentence_id'] = results['comment_id'].astype(str) + '_' + results['sentence_pos'].astype(str)
-
-        return results[columns]
-
     def read_sort_check(self, pred_filename, gs_filename, task_number):
-        pred_res = self.read_results(task_number=task_number, filename=pred_filename)
-        gs_res = self.read_results(task_number=task_number, filename=gs_filename)
+        pred_res = read_results(task_number=task_number, filename=pred_filename, results_path=self.results_path)
+        gs_res = read_results(task_number=task_number, filename=gs_filename, results_path=self.results_path)
 
         pred_res.sort_values(by='sentence_id', inplace=True)
         gs_res.sort_values(by='sentence_id', inplace=True)
 
+        assert gs_res['sentence_id'].shape[0] == pred_res['sentence_id'].shape[0]
+        assert all(gs_res['sentence_id'].isin(pred_res['sentence_id']))
+        assert all(pred_res['sentence_id'].isin(gs_res['sentence_id']))
+        assert gs_res['sentence_id'].nunique() == gs_res['sentence_id'].shape[0]
+        assert pred_res['sentence_id'].nunique() == pred_res['sentence_id'].shape[0]
         assert all(gs_res['sentence_id'].eq(pred_res['sentence_id'].unique()))
         assert pd.isna(gs_res.values).sum() + pd.isna(pred_res.values).sum() == 0
-        assert all(np.equal(np.unique(gs_res.iloc[:, 1:].values), np.array([0, 1])))
-        assert all(np.equal(np.unique(pred_res.iloc[:, 1:].values), np.array([0, 1])))
+        assert all(np.isin(np.unique(gs_res.iloc[:, 1:].values), np.array([0, 1])))
+        assert all(np.isin(np.unique(pred_res.iloc[:, 1:].values), np.array([0, 1])))
         if task_number == 2:
             assert all(pred_res[pred_res['stereotype'] == 0].iloc[:, 2:].values.flatten() == 0)
             assert all(gs_res[gs_res['stereotype'] == 0].iloc[:, 2:].values.flatten() == 0)
@@ -123,7 +115,9 @@ class Evaluator:
         pred_res, gs_res = self.read_sort_check(filename, gs_filename, task_number=1)
 
         return {
-            'f_score': f1_score(gs_res['stereotype'].values, pred_res['stereotype'].values, average='binary')
+            'f_score': f1_score(gs_res['stereotype'].values, pred_res['stereotype'].values, average='binary'),
+            'precision': precision_score(gs_res['stereotype'].values, pred_res['stereotype'].values, average='binary'),
+            'recall': recall_score(gs_res['stereotype'].values, pred_res['stereotype'].values, average='binary')
         }
 
     def evaluate_task2(self, attempt, gs_filename):
